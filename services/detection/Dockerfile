@@ -20,7 +20,7 @@ COPY services/detection/requirements.txt .
 RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # Install the latest Ultralytics version to ensure C3k2 support
-RUN pip install --no-cache-dir ultralytics
+RUN pip install --no-cache-dir --break-system-packages ultralytics==8.3.155
 # Install other dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
