@@ -319,27 +319,43 @@ def main():
     parser = argparse.ArgumentParser(description='Detection Service')
     parser.add_argument('--model-path', 
                        help='Path to YOLO model file')
-    parser.add_argument('--db-path', default='violations.db',
-                       help='Database path (default: violations.db)')
-    parser.add_argument('--rabbitmq-host', default='localhost', 
-                       help='RabbitMQ host (default: localhost)')
-    parser.add_argument('--rabbitmq-port', type=int, default=5672, 
-                       help='RabbitMQ port (default: 5672)')
-    parser.add_argument('--rabbitmq-user', default='guest', 
-                       help='RabbitMQ username (default: guest)')
-    parser.add_argument('--rabbitmq-password', default='guest', 
-                       help='RabbitMQ password (default: guest)')
+    parser.add_argument('--db-path', 
+                       help='Database path')
+    parser.add_argument('--rabbitmq-host', 
+                       help='RabbitMQ host')
+    parser.add_argument('--rabbitmq-port', type=int, 
+                       help='RabbitMQ port')
+    parser.add_argument('--rabbitmq-user', 
+                       help='RabbitMQ username')
+    parser.add_argument('--rabbitmq-password', 
+                       help='RabbitMQ password')
     
     args = parser.parse_args()
     
+    # Get configuration from environment variables or command line args
+    rabbitmq_host = args.rabbitmq_host or os.getenv('RABBITMQ_HOST', 'localhost')
+    rabbitmq_port = args.rabbitmq_port or int(os.getenv('RABBITMQ_PORT', '5672'))
+    rabbitmq_user = args.rabbitmq_user or os.getenv('RABBITMQ_USER', 'guest')
+    rabbitmq_password = args.rabbitmq_password or os.getenv('RABBITMQ_PASSWORD', 'guest')
+    model_path = args.model_path or os.getenv('MODEL_PATH')
+    db_path = args.db_path or os.getenv('DATABASE_PATH', 'violations.db')
+    
+    # Print configuration for debugging
+    print(f"RabbitMQ Configuration:")
+    print(f"  Host: {rabbitmq_host}")
+    print(f"  Port: {rabbitmq_port}")
+    print(f"  User: {rabbitmq_user}")
+    print(f"  Database: {db_path}")
+    print(f"  Model: {model_path}")
+    
     # Create detection service
     service = DetectionService(
-        rabbitmq_host=args.rabbitmq_host,
-        rabbitmq_port=args.rabbitmq_port,
-        rabbitmq_user=args.rabbitmq_user,
-        rabbitmq_password=args.rabbitmq_password,
-        model_path=args.model_path,
-        db_path=args.db_path
+        rabbitmq_host=rabbitmq_host,
+        rabbitmq_port=rabbitmq_port,
+        rabbitmq_user=rabbitmq_user,
+        rabbitmq_password=rabbitmq_password,
+        model_path=model_path,
+        db_path=db_path
     )
     
     try:
