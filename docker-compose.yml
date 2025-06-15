@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: pizza_rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - pizza_network
+
+  streaming_service:
+    build:
+      context: .
+      dockerfile: services/streaming/Dockerfile
+    container_name: pizza_streaming
+    ports:
+      - "8000:8000"
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASSWORD=admin123
+      - DATABASE_PATH=/app/data/violations.db
+      - HOST=0.0.0.0
+      - PORT=8000
+    volumes:
+      - ./data:/app/data
+      - ./violation_frames:/app/violation_frames
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - pizza_network
+    restart: unless-stopped
+
+  detection_service:
+    build:
+      context: .
+      dockerfile: services/detection/Dockerfile
+    container_name: pizza_detection
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASSWORD=admin123
+      - DATABASE_PATH=/app/data/violations.db
+    volumes:
+      - ./data:/app/data
+      - ./violation_frames:/app/violation_frames
+      - ./models:/app/models
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - pizza_network
+    restart: unless-stopped
+    command: >
+      sh -c "sleep 10 && python main.py --model-path /app/models/yolo12m-v2.pt"
+
+  frame_reader:
+    build:
+      context: .
+      dockerfile: services/frame_reader/Dockerfile
+    container_name: pizza_frame_reader
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASSWORD=admin123
+    volumes:
+      - ./videos:/app/videos
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - pizza_network
+    restart: unless-stopped
+    # Override command to specify video source
+    command: ["python", "main.py", "--source", "/app/videos/Video.mkv", "--fps", "10"]
+
+  streamlit_frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pizza_streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_HEADLESS=true
+    depends_on:
+      - streaming_service
+    networks:
+      - pizza_network
+    restart: unless-stopped
+
+volumes:
+  rabbitmq_data:
+
+networks:
+  pizza_network:
+    driver: bridge
