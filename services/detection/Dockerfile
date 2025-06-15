@@ -13,12 +13,15 @@ RUN apt-get update && apt-get install -y \
     libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install PyTorch (CPU version) and Ultralytics YOLO
-RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu \
-    && pip install ultralytics
-
-# Copy requirements and install dependencies
+# Copy requirements first to leverage Docker cache
 COPY services/detection/requirements.txt .
+
+# Install PyTorch (CPU version) first
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# Install the latest Ultralytics version to ensure C3k2 support
+RUN pip install --no-cache-dir ultralytics
+# Install other dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy shared modules and service code
