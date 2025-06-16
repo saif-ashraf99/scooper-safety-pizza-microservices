@@ -46,14 +46,22 @@ class Database:
                 )
             """)
             
-            # Insert default ROI if not exists
+            # Upsert default ROI
             conn.execute("""
-                INSERT OR IGNORE INTO rois (id, name, coordinates, violation_type)
-                VALUES ('protein_container', 'Protein Container', '[50, 50, 300, 300]', 'no_scooper')
+                INSERT INTO rois (id, name, coordinates, violation_type)
+                VALUES (
+                'protein_container',
+                'Protein Container',
+                '[430, 320, 300, 700]',
+                'no_scooper'
+                )
+                ON CONFLICT(id) DO UPDATE
+                SET coordinates = excluded.coordinates,
+                    name        = excluded.name,
+                    violation_type = excluded.violation_type,
+                    updated_at  = CURRENT_TIMESTAMP
             """)
-            
             conn.commit()
-            logger.info("Database initialized successfully")
     
     @contextmanager
     def get_connection(self):
