@@ -32,10 +32,10 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 class Config:
-    RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', 'localhost')
+    RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', 'rabbitmq')
     RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', 5672))
-    RABBITMQ_USER = os.getenv('RABBITMQ_USER', 'guest')
-    RABBITMQ_PASSWORD = os.getenv('RABBITMQ_PASSWORD', 'guest')
+    RABBITMQ_USER = os.getenv('RABBITMQ_USER', 'admin')
+    RABBITMQ_PASSWORD = os.getenv('RABBITMQ_PASSWORD', 'admin123')
     DATABASE_PATH = os.getenv('DATABASE_PATH', 'violations.db')
     HOST = os.getenv('HOST', '0.0.0.0')
     PORT = int(os.getenv('PORT', 8000))
@@ -220,50 +220,59 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 # RabbitMQ message handler
-def handle_detection_result(message: dict):
-    """Handle detection results from RabbitMQ"""
+def handle_detection_result(message: dict, loop: asyncio.AbstractEventLoop):
     try:
-        # Update metrics
+        logger.info("📨 Received detection message from RabbitMQ")
+        frame_data = message.get('frame_data')
+        logger.info(f"Frame data present: {bool(frame_data)}")
+
         system_metrics['frames_processed'] += 1
         if message.get('violations'):
             system_metrics['violations_detected'] += len(message['violations'])
-        
-        # Broadcast to WebSocket clients
+
         websocket_message = {
             "type": "frame",
             "frame_id": message.get('frame_id'),
             "timestamp": message.get('timestamp'),
-            "image_data": message.get('frame_data'),
+            "image_data": frame_data,
             "detections": message.get('detections', []),
             "violations": message.get('violations', [])
         }
-        
-        # Use asyncio to broadcast (need to handle this properly in production)
-        asyncio.create_task(manager.broadcast(websocket_message))
-        
+
+        asyncio.run_coroutine_threadsafe(manager.broadcast(websocket_message), loop)
+
     except Exception as e:
         logger.error(f"Error handling detection result: {e}")
+
+
 
 # Startup and shutdown events
 @app.on_event("startup")
 async def startup_event():
-    """Initialize services on startup"""
-    global rabbitmq_consumer
+    global rabbitmq_consumer, fastapi_event_loop
     try:
-        # Initialize RabbitMQ consumer
+        fastapi_event_loop = asyncio.get_running_loop()  # <-- capture main loop here
+
         rabbitmq_consumer = RabbitMQConsumer(
             host=config.RABBITMQ_HOST,
             port=config.RABBITMQ_PORT,
             username=config.RABBITMQ_USER,
             password=config.RABBITMQ_PASSWORD
         )
-        
-        # Start consuming detection results in background
-        # Note: In production, this should be handled properly with asyncio
-        logger.info("Streaming service started successfully")
-        
+
+        import threading
+        thread = threading.Thread(
+            target=rabbitmq_consumer.consume_detection_results,
+            args=(lambda msg: handle_detection_result(msg, fastapi_event_loop),),
+            daemon=True
+        )
+        thread.start()
+
+        logger.info("Streaming service started and consumer thread launched.")
     except Exception as e:
         logger.error(f"Failed to start streaming service: {e}")
+
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -323,7 +332,9 @@ async def get_frontend():
         </div>
 
         <script>
-            const ws = new WebSocket('ws://localhost:8000/ws/video');
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+            const ws = new WebSocket(`${wsProtocol}://${window.location.host}/ws/video`);
+
             const video = document.getElementById('video');
             const violationAlert = document.getElementById('violation-alert');
             

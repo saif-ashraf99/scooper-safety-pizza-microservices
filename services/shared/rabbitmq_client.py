@@ -12,13 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 class RabbitMQClient:
-    def __init__(self, host: str = None, port: int = None, 
-                 username: str = None, password: str = None):
-        # Read from environment variables with fallbacks
-        self.host = host or os.getenv('RABBITMQ_HOST', 'rabbitmq')
-        self.port = port or int(os.getenv('RABBITMQ_PORT', 5672))
-        self.username = username or os.getenv('RABBITMQ_USER', 'admin')
-        self.password = password or os.getenv('RABBITMQ_PASSWORD', 'admin123')
+    def __init__(self, host: Optional[str] = None, port: Optional[int] = None, 
+                 username: Optional[str] = None, password: Optional[str] = None):
+        self.host = host if host is not None else os.getenv('RABBITMQ_HOST', 'rabbitmq')
+        self.port = port if port is not None else int(os.getenv('RABBITMQ_PORT', 5672))
+        self.username = username if username is not None else os.getenv('RABBITMQ_USER', 'admin')
+        self.password = password if password is not None else os.getenv('RABBITMQ_PASSWORD', 'admin123')
         
         self.connection = None
         self.channel = None
@@ -47,7 +46,6 @@ class RabbitMQClient:
                 self.connection = pika.BlockingConnection(parameters)
                 self.channel = self.connection.channel()
                 
-                # Declare queues
                 self.channel.queue_declare(queue='video_frames', durable=True)
                 self.channel.queue_declare(queue='detection_results', durable=True)
                 
@@ -59,14 +57,12 @@ class RabbitMQClient:
                 if attempt < self.max_retries - 1:
                     logger.info(f"Retrying in {self.retry_delay} seconds...")
                     time.sleep(self.retry_delay)
-                    # Exponential backoff with jitter
                     self.retry_delay = min(self.retry_delay * 1.5, 30)
                 else:
                     logger.error("All connection attempts failed")
                     raise Exception(f"Failed to connect to RabbitMQ after {self.max_retries} attempts")
     
     def ensure_connection(self):
-        """Ensure connection is alive, reconnect if necessary"""
         try:
             if not self.connection or self.connection.is_closed:
                 logger.info("Connection is closed, reconnecting...")
@@ -74,7 +70,6 @@ class RabbitMQClient:
             elif not self.channel or self.channel.is_closed:
                 logger.info("Channel is closed, creating new channel...")
                 self.channel = self.connection.channel()
-                # Re-declare queues
                 self.channel.queue_declare(queue='video_frames', durable=True)
                 self.channel.queue_declare(queue='detection_results', durable=True)
         except Exception as e:
@@ -82,7 +77,6 @@ class RabbitMQClient:
             self.connect()
     
     def disconnect(self):
-        """Close connection to RabbitMQ"""
         try:
             if self.channel and not self.channel.is_closed:
                 self.channel.close()
@@ -94,30 +88,22 @@ class RabbitMQClient:
     
     def publish_message(self, queue: str, message: Dict[str, Any], 
                        exchange: str = '', routing_key: str = None):
-        """Publish a message to a queue with retry logic"""
         if routing_key is None:
             routing_key = queue
         
         max_publish_retries = 3
         for attempt in range(max_publish_retries):
             try:
-                # Ensure connection is alive
                 self.ensure_connection()
-                
-                # Add timestamp if not present
-                if 'timestamp' not in message:
-                    message['timestamp'] = datetime.now().isoformat()
-                
-                # Add message ID if not present
-                if 'message_id' not in message:
-                    message['message_id'] = str(uuid.uuid4())
+                message.setdefault('timestamp', datetime.now().isoformat())
+                message.setdefault('message_id', str(uuid.uuid4()))
                 
                 self.channel.basic_publish(
                     exchange=exchange,
                     routing_key=routing_key,
                     body=json.dumps(message, default=str),
                     properties=pika.BasicProperties(
-                        delivery_mode=2,  # Make message persistent
+                        delivery_mode=2,
                         timestamp=int(time.time())
                     )
                 )
@@ -128,7 +114,6 @@ class RabbitMQClient:
                 logger.warning(f"Failed to publish message (attempt {attempt + 1}): {e}")
                 if attempt < max_publish_retries - 1:
                     time.sleep(1)
-                    # Try to reconnect
                     try:
                         self.connect()
                     except:
@@ -139,13 +124,9 @@ class RabbitMQClient:
     
     def consume_messages(self, queue: str, callback: Callable, 
                         auto_ack: bool = False, prefetch_count: int = 1):
-        """Consume messages from a queue with reconnection handling"""
         while True:
             try:
-                # Ensure connection is alive
                 self.ensure_connection()
-                
-                # Set QoS
                 self.channel.basic_qos(prefetch_count=prefetch_count)
                 
                 def wrapper(ch, method, properties, body):
@@ -186,7 +167,6 @@ class RabbitMQClient:
                     pass
     
     def get_queue_info(self, queue: str) -> Dict[str, Any]:
-        """Get queue information"""
         try:
             self.ensure_connection()
             method = self.channel.queue_declare(queue=queue, passive=True)
@@ -200,7 +180,6 @@ class RabbitMQClient:
             return {'queue': queue, 'message_count': 0, 'consumer_count': 0}
     
     def purge_queue(self, queue: str):
-        """Purge all messages from a queue"""
         try:
             self.ensure_connection()
             self.channel.queue_purge(queue=queue)
@@ -210,33 +189,23 @@ class RabbitMQClient:
             raise
     
     def __enter__(self):
-        """Context manager entry"""
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit"""
         self.disconnect()
 
 
 class RabbitMQPublisher(RabbitMQClient):
-    """Simplified publisher class"""
-    
     def publish_frame(self, frame_data: Dict[str, Any]):
-        """Publish video frame to video_frames queue"""
         self.publish_message('video_frames', frame_data)
     
     def publish_detection_result(self, result_data: Dict[str, Any]):
-        """Publish detection result to detection_results queue"""
         self.publish_message('detection_results', result_data)
 
 
 class RabbitMQConsumer(RabbitMQClient):
-    """Simplified consumer class"""
-    
     def consume_frames(self, callback: Callable):
-        """Consume video frames from video_frames queue"""
         self.consume_messages('video_frames', callback)
     
     def consume_detection_results(self, callback: Callable):
-        """Consume detection results from detection_results queue"""
         self.consume_messages('detection_results', callback)

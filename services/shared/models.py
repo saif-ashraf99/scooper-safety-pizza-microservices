@@ -23,12 +23,9 @@ class BoundingBox(BaseModel):
 
 
 class Detection(BaseModel):
-    class_name: DetectionClass = Field(..., alias="class")
+    class_name: DetectionClass
     confidence: float = Field(..., ge=0.0, le=1.0)
     bbox: BoundingBox
-    
-    class Config:
-        allow_population_by_field_name = True
 
 
 class Violation(BaseModel):
@@ -110,4 +107,3 @@ class WebSocketMessage(BaseModel):
     image_data: str
     detections: List[Detection]
     violations: List[Violation]
-

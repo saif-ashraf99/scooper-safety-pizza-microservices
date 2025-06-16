@@ -21,8 +21,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class FrameReaderService:
-    def __init__(self, rabbitmq_host: str = 'localhost', rabbitmq_port: int = 5672,
-                 rabbitmq_user: str = 'guest', rabbitmq_password: str = 'guest'):
+    def __init__(self, rabbitmq_host: str = 'rabbitmq', rabbitmq_port: int = 5672,
+                 rabbitmq_user: str = 'admin', rabbitmq_password: str = 'admin123'):
         self.publisher = RabbitMQPublisher(
             host=rabbitmq_host,
             port=rabbitmq_port,
@@ -262,14 +262,14 @@ def main():
                        help='Video source: file path, camera ID (0,1,2...), or RTSP URL')
     parser.add_argument('--fps', type=float, default=30, 
                        help='Target FPS (default: 30)')
-    parser.add_argument('--rabbitmq-host', default='localhost', 
-                       help='RabbitMQ host (default: localhost)')
+    parser.add_argument('--rabbitmq-host', default='rabbitmq', 
+                       help='RabbitMQ host (default: rabbitmq)')
     parser.add_argument('--rabbitmq-port', type=int, default=5672, 
                        help='RabbitMQ port (default: 5672)')
-    parser.add_argument('--rabbitmq-user', default='guest', 
-                       help='RabbitMQ username (default: guest)')
-    parser.add_argument('--rabbitmq-password', default='guest', 
-                       help='RabbitMQ password (default: guest)')
+    parser.add_argument('--rabbitmq-user', default='admin', 
+                       help='RabbitMQ username (default: admin)')
+    parser.add_argument('--rabbitmq-password', default='admin123', 
+                       help='RabbitMQ password (default: admin123)')
     
     args = parser.parse_args()
     

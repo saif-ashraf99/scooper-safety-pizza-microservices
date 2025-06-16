@@ -54,8 +54,7 @@ services:
     networks:
       - pizza_network
     restart: unless-stopped
-    command: >
-      sh -c "sleep 10 && python main.py"
+    command: ["python", "main.py", "--mode", "service", "--model-path", "models/yolo12m-v2.pt", "--db-path", "data/violations.db"]
 
   frame_reader:
     build:
@@ -72,7 +71,7 @@ services:
     networks:
       - pizza_network
     restart: unless-stopped
-    command: ["python", "main.py", "--source", "/app/videos/Video.mkv", "--fps", "10"]
+    command: ["python", "main.py", "--source", "/app/videos/right_wrong.mp4", "--fps", "10"]
 
   streamlit_frontend:
     build:
