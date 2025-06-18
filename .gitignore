@@ -1,3 +1,4 @@
 .env
 videos/
 violation_frames/
+data/violation.db
