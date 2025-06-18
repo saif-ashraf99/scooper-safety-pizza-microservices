@@ -12,7 +12,7 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 30s
+      interval: 5s
       timeout: 10s
       retries: 5
     networks:
@@ -48,13 +48,14 @@ services:
       - ./data:/app/data
       - ./violation_frames:/app/violation_frames
       - ./models:/app/models
+      - ./services/detection/imgs:/app/detection/imgs:ro
     depends_on:
       rabbitmq:
         condition: service_healthy
     networks:
       - pizza_network
     restart: unless-stopped
-    command: ["python", "main.py", "--mode", "service", "--model-path", "models/yolo12m-v2.pt", "--db-path", "data/violations.db"]
+    command: ["python", "main.py", "--mode", "service","--model-path", "models/yolo12m-v2.pt", "--db-path", "data/violations.db", "--skip-frames", "30", "--output-path", "videos/output/output_video.mp4"]
 
   frame_reader:
     build:
@@ -71,7 +72,7 @@ services:
     networks:
       - pizza_network
     restart: unless-stopped
-    command: ["python", "main.py", "--source", "/app/videos/Video.mkv", "--fps", "30"]
+    command: ["python", "main.py", "--source", "/app/videos/right_wrong.mp4", "--fps", "30"]
 
   streamlit_frontend:
     build:
