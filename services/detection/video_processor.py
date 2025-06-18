@@ -35,7 +35,7 @@ class VideoProcessor:
 
         # Build your finder here, too:
         self.container_finder = ContainerFinder(
-            match_threshold=0.5,    # lower if you get too few matches
+            match_threshold=0.8,
             use_edges=False         # try True if lighting varies wildly
         )
 
