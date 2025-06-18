@@ -4,10 +4,10 @@ from dataclasses import dataclass
 
 @dataclass
 class RabbitMQConfig:
-    host: str = os.getenv('RABBITMQ_HOST', 'localhost')
+    host: str = os.getenv('RABBITMQ_HOST', 'rabbitmq')
     port: int = int(os.getenv('RABBITMQ_PORT', 5672))
-    username: str = os.getenv('RABBITMQ_USER', 'guest')
-    password: str = os.getenv('RABBITMQ_PASSWORD', 'guest')
+    username: str = os.getenv('RABBITMQ_USER', 'admin')
+    password: str = os.getenv('RABBITMQ_PASSWORD', 'admin123')
     
     @property
     def connection_url(self) -> str:

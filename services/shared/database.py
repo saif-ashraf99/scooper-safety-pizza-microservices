@@ -47,20 +47,20 @@ class Database:
             """)
             
             # Upsert default ROI
-            conn.execute("""
-                INSERT INTO rois (id, name, coordinates, violation_type)
-                VALUES (
-                'protein_container',
-                'Protein Container',
-                '[430, 320, 300, 700]',
-                'no_scooper'
-                )
-                ON CONFLICT(id) DO UPDATE
-                SET coordinates = excluded.coordinates,
-                    name        = excluded.name,
-                    violation_type = excluded.violation_type,
-                    updated_at  = CURRENT_TIMESTAMP
-            """)
+            # conn.execute("""
+            #     INSERT INTO rois (id, name, coordinates, violation_type)
+            #     VALUES (
+            #     'protein_container',
+            #     'Protein Container',
+            #     '[430, 320, 300, 700]',
+            #     'no_scooper'
+            #     )
+            #     ON CONFLICT(id) DO UPDATE
+            #     SET coordinates = excluded.coordinates,
+            #         name        = excluded.name,
+            #         violation_type = excluded.violation_type,
+            #         updated_at  = CURRENT_TIMESTAMP
+            # """)
             conn.commit()
     
     @contextmanager
@@ -210,4 +210,3 @@ class Database:
             ))
             conn.commit()
             logger.info(f"ROI {roi.id} updated successfully")
-
