@@ -71,7 +71,7 @@ services:
     networks:
       - pizza_network
     restart: unless-stopped
-    command: ["python", "main.py", "--source", "/app/videos/right_wrong.mp4", "--fps", "30"]
+    command: ["python", "main.py", "--source", "/app/videos/Video.mkv", "--fps", "30"]
 
   streamlit_frontend:
     build:
