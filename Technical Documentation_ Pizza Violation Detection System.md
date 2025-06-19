@@ -117,45 +117,54 @@ service.read_rtsp_stream("rtsp://your_camera_ip/stream", args.fps)
 
 **Docker Image**: Built from `services/frame_reader/Dockerfile`
 
+**Message Format (Consumed from `video_frames` queue)**:
+
 ### 3.2 Detection Service
 
-**Location**: `services/detection/`
+**Location**: `<span>services/detection/</span>`
 
-**Purpose**: The Detection Service is the core computer vision component of the system. It subscribes to video frames from the RabbitMQ `video_frames` queue, performs object detection using a YOLO model, applies the violation detection logic, and then publishes the results (including annotated frames and violation statuses) to the RabbitMQ `detection_results` queue. It also persists violation records to the database.
+**Purpose**: The Detection Service is the core computer-vision component of the system. It subscribes to video frames from the RabbitMQ `<span>video_frames</span>` queue, performs object detection using a YOLO model, applies dynamic ROI via template matching and violation detection logic, then publishes annotated results and violations to the `<span>detection_results</span>` queue and persists violations in the database.
 
 **Key Components**:
 
-- `main.py`: Contains the logic for consuming frames, running the detection model, applying violation rules, drawing annotations, and publishing results.
-- `requirements.txt`: Lists Python dependencies, including `opencv-python`, `pika`, `numpy`, and `ultralytics` (for YOLO).
-- `Dockerfile`: Defines the containerization environment for the service.
+* `<span>main.py</span>`: Entry-point handling CLI args, constructing `<span>DetectionService</span>`, and dispatching to either service mode (RabbitMQ) or standalone video processing.
+* `<span>yolo_detector.py</span>`: Implements `<span>YOLODetector</span>` which loads a pre-trained Ultralytics YOLO `<span>.pt</span>` model (with `<span>weights_only=False</span>`) and provides a `<span>detect(frame)</span>` method returning raw detections (`<span>class</span>`, `<span>confidence</span>`, `<span>bbox</span>`).
+* `<span>container_finder.py</span>`: Implements `<span>ContainerFinder</span>`:
+  * Loads all `<span>.png</span>` template patches from `<span>services/detection/imgs/</span>`.
+  * Optionally applies Gaussian blur and Canny edges.
+  * Runs `<span>cv2.matchTemplate</span>` on each patch (static scale) to find matches above a confidence threshold.
+  * Merges all passing patch boxes into a single dynamic ROI `<span>(x1,y1,x2,y2)</span>`.
+* `<span>violation_detector.py</span>`: Implements `<span>ViolationDetector</span>`:
+  1. Filters detections into `<span>HAND</span>` (or `<span>PERSON</span>` fallback) and `<span>SCOOPER</span>` classes.
+  2. Tests each hand/person box‑or‑center against the dynamic ROI.
+  3. Computes a dynamic proximity threshold (20% of ROI width).
+  4. Flags `<span>NO_SCOOPER</span>` if inside ROI without a nearby scooper.
+* `<span>video_processor.py</span>`: Drives the per-frame pipeline:
+  1. Raw detections via `<span>YOLODetector.detect</span>`
+  2. Dynamic ROI via `<span>ContainerFinder.find</span>`
+  3. Violation logic via `<span>ViolationDetector.detect_violations</span>`
+  4. Drawing detections, dynamic ROI, and violations on the frame
+  5. Persisting violations (`<span>ViolationRecord</span>`) and publishing `<span>DetectionResult</span>`
+* `<span>requirements.txt</span>`: Lists dependencies (`<span>opencv-python</span>`, `<span>numpy</span>`, `<span>pika</span>`, `<span>ultralytics</span>`, etc.)
+* `<span>Dockerfile</span>`: Builds a slim Python container with OpenCV, PyTorch, YOLO, and the service code.
 
-**Functionality**:
+**Workflow**
 
-- **Frame Consumption**: Continuously consumes `VideoFrame` messages from the `video_frames` queue.
-- **Object Detection**: Utilizes a pre-trained YOLO model to identify objects such as `hand`, `person`, `pizza`, and `scooper` within each frame.
-- **Violation Logic**: Implements the business rules for detecting scooper hygiene violations:
-  - Identifies if a `hand` enters a predefined Region of Interest (ROI).
-  - Checks for the presence and proximity of a `scooper` when a hand is within an ROI.
-  - Flags a violation if a hand is in an ROI without a scooper being used.
-- **ROI Management**: Retrieves ROI configurations from the shared database to define critical zones.
-- **Annotation**: Draws bounding boxes for detected objects, highlights ROIs, and visually indicates violations directly on the video frames.
-- **Database Persistence**: Stores detailed `ViolationRecord` data (frame ID, timestamp, violation type, ROI, bounding boxes, metadata) in the central database.
-- **Result Publishing**: Publishes `DetectionResult` messages containing processed frames (with annotations), detected objects, and violation information to the `detection_results` queue.
+1. **Frame Consumption**: Pull `<span>VideoFrame</span>` messages from `<span>video_frames</span>`.
+2. **Object Detection**: Run the YOLO model to get raw detections.
+3. **Dynamic ROI**: Use template matching (multi-patch) to locate the protein container every frame.
+4. **Violation Detection**: Check hands/persons vs. dynamic ROI and scooper proximity.
+5. **Annotation**: Draw detection boxes, dynamic ROI in red, and highlight violations.
+6. **Database Persistence**: Save each violation as a `<span>ViolationRecord</span>`.
+7. **Result Publishing**: Emit `<span>DetectionResult</span>` (annotated image + metadata + violations) to `<span>detection_results</span>`.
 
 **Configuration (Environment Variables)**:
 
-- `RABBITMQ_HOST`: Hostname or IP address of the RabbitMQ server (default: `localhost`)
-- `RABBITMQ_PORT`: Port of the RabbitMQ server (default: `5672`)
-- `RABBITMQ_USER`: Username for RabbitMQ authentication (default: `guest`)
-- `RABBITMQ_PASSWORD`: Password for RabbitMQ authentication (default: `guest`)
-- `MODEL_PATH`: Path to the YOLO model file (e.g., `/app/models/yolo_model.pt`).
-- `DATABASE_PATH`: Path to the SQLite database file (default: `violations.db`).
-- `CONFIDENCE_THRESHOLD`: Minimum confidence score for object detections to be considered valid (default: `0.7`).
-- `SCOOPER_DISTANCE_THRESHOLD`: Maximum pixel distance between a hand and a scooper for the scooper to be considered
-
-used (default: `100.0`).
-
-**Message Format (Consumed from `video_frames` queue)**:
+* `<span>RABBITMQ_HOST</span>`, `<span>RABBITMQ_PORT</span>`, `<span>RABBITMQ_USER</span>`, `<span>RABBITMQ_PASSWORD</span>`
+* `<span>MODEL_PATH</span>`: Path to YOLO model file (e.g., `<span>/app/models/yolo_model.pt</span>`).
+* `<span>DATABASE_PATH</span>`: Path to SQLite DB (default: `<span>violations.db</span>`).
+* `<span>CONFIDENCE_THRESHOLD</span>`: Minimum confidence for raw detections (default: `<span>0.7</span>`).
+* `<span>MATCH_THRESHOLD</span>`: Minimum template match score to accept a patch (default: `<span>0.6</span>`).
 
 (See Frame Reader Service documentation for `VideoFrame` format)
 
