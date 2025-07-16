@@ -48,14 +48,23 @@ services:
       - ./data:/app/data
       - ./violation_frames:/app/violation_frames
       - ./models:/app/models
-      - ./services/detection/rois:/app/detection/rois:ro
+      - ./services/detection/rois/container_rois.json:/app/container_rois.json:ro
     depends_on:
       rabbitmq:
         condition: service_healthy
     networks:
       - pizza_network
     restart: unless-stopped
-    command: ["python", "main.py", "--mode", "service","--model-path", "models/fine-tuned-yolo12m-v2.pt", "--db-path", "data/violations.db", "--skip-frames", "5", "--output-path", "videos/output/output_video.mp4"]
+    command:
+      [
+        "python", "main.py",
+        "--mode", "service",
+        "--camera-id", "1",
+        "--model-path", "models/fine-tuned-yolo12m-v2.pt",
+        "--db-path", "data/violations.db",
+        "--skip-frames", "5",
+        "--output-path", "videos/output/output_video.mp4"
+      ]
 
   frame_reader:
     build:

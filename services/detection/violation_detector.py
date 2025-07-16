@@ -3,7 +3,7 @@ import numpy as np
 import logging
 from typing import List, Dict, Any, Tuple
 
-from shared import Detection, Violation, ViolationType, DetectionClass
+from services.shared import Detection, Violation, ViolationType, DetectionClass
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)

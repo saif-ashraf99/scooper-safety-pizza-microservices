@@ -7,14 +7,14 @@ import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-from shared import (
+from services.shared import (
     Database, Detection, Violation, BoundingBox,
     DetectionClass, ViolationRecord,
 )
 
-from detection.yolo_detector import YOLODetector
-from detection.violation_detector import ViolationDetector
-from detection.container_finder import ContainerFinder
+from services.detection.yolo_detector import YOLODetector
+from services.detection.violation_detector import ViolationDetector
+from services.detection.container_finder import ContainerFinder
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

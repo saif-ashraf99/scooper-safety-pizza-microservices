@@ -7,14 +7,14 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-from shared import (
+from services.shared import (
     RabbitMQConsumer, RabbitMQPublisher, Database, 
     DetectionResult
 )
 
-from detection.video_processor import VideoProcessor
-from detection.yolo_detector import YOLODetector
-from detection.violation_detector import ViolationDetector
+from services.detection.video_processor import VideoProcessor
+from services.detection.yolo_detector import YOLODetector
+from services.detection.violation_detector import ViolationDetector
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

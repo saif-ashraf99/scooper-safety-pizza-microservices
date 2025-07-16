@@ -2,7 +2,7 @@ import logging
 import os
 import argparse
 
-from detection.detection import DetectionService
+from services.detection.detection import DetectionService
 
 # Configure logging
 logging.basicConfig(

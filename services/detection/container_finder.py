@@ -18,9 +18,9 @@ class ContainerFinder:
         rois_file: Optional[str] = None,
     ):
         base = os.path.dirname(__file__)
-        rois_folder = os.path.join(base, "rois")
-        if not os.path.isdir(rois_folder):
-            raise FileNotFoundError(f"ROIs folder not found: {rois_folder}")
+        if rois_file is None:
+            rois_file = os.path.join(base, "rois", "container_rois.json")
+            
         self.camera_id = camera_id
         self.rois_file = rois_file
         self.static_rois: List[Tuple[int, int, int, int]] = []
