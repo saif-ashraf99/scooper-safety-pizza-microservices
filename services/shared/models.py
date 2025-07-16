@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -26,6 +26,7 @@ class Detection(BaseModel):
     class_name: DetectionClass
     confidence: float = Field(..., ge=0.0, le=1.0)
     bbox: BoundingBox
+    track_id: Optional[int] = None
 
 
 class Violation(BaseModel):
@@ -34,13 +35,14 @@ class Violation(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0)
     bbox: BoundingBox
     description: Optional[str] = None
+    track_id: Optional[int] = None 
 
 
 class FrameMetadata(BaseModel):
     width: int
     height: int
     fps: float
-    source: str = "camera_1"
+    source: str
 
 
 class VideoFrame(BaseModel):
@@ -48,6 +50,12 @@ class VideoFrame(BaseModel):
     timestamp: datetime
     frame_data: str  # base64 encoded
     metadata: FrameMetadata
+
+    @field_validator("timestamp", mode="before")
+    def set_timestamp_utc(cls, v):
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
 
 class DetectionResult(BaseModel):
@@ -58,13 +66,25 @@ class DetectionResult(BaseModel):
     frame_data: str  # base64 encoded with detections drawn
     processing_time: float
 
+    @field_validator("timestamp", mode="before")
+    def set_timestamp_utc(cls, v):
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
+
 
 class ROI(BaseModel):
     id: str
     name: str
-    coordinates: List[float] = Field(..., min_items=4, max_items=4)  # [x1, y1, x2, y2]
+    coordinates: List[float] = Field(..., min_items=4, max_items=4)
     active: bool = True
     violation_type: ViolationType
+
+    @field_validator("coordinates")
+    def validate_coordinates(cls, v):
+        if not (v[0] < v[2] and v[1] < v[3]):
+            raise ValueError("ROI coordinates must be [x1, y1, x2, y2] where x1 < x2 and y1 < y2")
+        return v
 
 
 class ViolationRecord(BaseModel):
@@ -79,6 +99,12 @@ class ViolationRecord(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
 
+    @field_validator("timestamp", "created_at", mode="before")
+    def set_timestamp_utc(cls, v):
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
+
 
 class ViolationSummary(BaseModel):
     total_violations: int
@@ -86,6 +112,12 @@ class ViolationSummary(BaseModel):
     last_violation: Optional[datetime] = None
     active_rois: List[str]
     processing_status: str
+
+    @field_validator("last_violation", mode="before")
+    def set_timestamp_utc(cls, v):
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
 
 class SystemStatus(BaseModel):
@@ -99,6 +131,12 @@ class HealthCheck(BaseModel):
     timestamp: datetime
     version: str = "1.0.0"
 
+    @field_validator("timestamp", mode="before")
+    def set_timestamp_utc(cls, v):
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
+
 
 class WebSocketMessage(BaseModel):
     type: str
@@ -107,3 +145,11 @@ class WebSocketMessage(BaseModel):
     image_data: str
     detections: List[Detection]
     violations: List[Violation]
+
+    @field_validator("timestamp", mode="before")
+    def set_timestamp_utc(cls, v):
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
+
+

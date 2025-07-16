@@ -48,14 +48,14 @@ services:
       - ./data:/app/data
       - ./violation_frames:/app/violation_frames
       - ./models:/app/models
-      - ./services/detection/imgs:/app/detection/imgs:ro
+      - ./services/detection/rois:/app/detection/rois:ro
     depends_on:
       rabbitmq:
         condition: service_healthy
     networks:
       - pizza_network
     restart: unless-stopped
-    command: ["python", "main.py", "--mode", "service","--model-path", "models/yolo12m-v2.pt", "--db-path", "data/violations.db", "--skip-frames", "30", "--output-path", "videos/output/output_video.mp4"]
+    command: ["python", "main.py", "--mode", "service","--model-path", "models/fine-tuned-yolo12m-v2.pt", "--db-path", "data/violations.db", "--skip-frames", "5", "--output-path", "videos/output/output_video.mp4"]
 
   frame_reader:
     build:
@@ -72,7 +72,7 @@ services:
     networks:
       - pizza_network
     restart: unless-stopped
-    command: ["python", "main.py", "--source", "/app/videos/Sah_w _b3dha_ghalt.mp4", "--fps", "30"]
+    command: ["python", "main.py", "--source", "/app/videos/Sah_w _b3dha_ghalt.mp4", "--fps", "5"]
 
   streamlit_frontend:
     build:

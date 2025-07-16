@@ -1,10 +1,11 @@
 import sqlite3
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 import logging
-from .models import ViolationRecord, ROI, ViolationType
+from .models import (ViolationRecord, ROI, ViolationType, VideoFrame, 
+                     Detection, DetectionResult, HealthCheck, SystemStatus, WebSocketMessage)
 
 logger = logging.getLogger(__name__)
 
@@ -15,14 +16,14 @@ class Database:
         self.init_database()
     
     def init_database(self):
-        """Initialize database tables"""
+        """Initialize database tables and indexes"""
         with self.get_connection() as conn:
             # Create violations table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS violations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     frame_id VARCHAR(36) NOT NULL,
-                    timestamp DATETIME NOT NULL,
+                    timestamp INTEGER NOT NULL, -- Storing as UNIX epoch integer
                     violation_type VARCHAR(50) NOT NULL,
                     roi_id VARCHAR(50) NOT NULL,
                     confidence FLOAT NOT NULL,
@@ -45,23 +46,84 @@ class Database:
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS video_frames (
+                    frame_id TEXT PRIMARY KEY,
+                    timestamp INTEGER NOT NULL,
+                    frame_data TEXT NOT NULL,
+                    width INTEGER NOT NULL,
+                    height INTEGER NOT NULL,
+                    fps REAL NOT NULL,
+                    source TEXT NOT NULL
+                )
+            """)
+
+            # Create detections table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS detections (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    frame_id TEXT NOT NULL,
+                    class_name TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    bbox TEXT NOT NULL,
+                    track_id INTEGER,
+                    FOREIGN KEY(frame_id) REFERENCES video_frames(frame_id)
+                )
+            """)
+
+            # Create detection_results table (aggregate)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS detection_results (
+                    frame_id TEXT PRIMARY KEY,
+                    timestamp INTEGER NOT NULL,
+                    detections TEXT NOT NULL,
+                    violations TEXT NOT NULL,
+                    frame_data TEXT NOT NULL,
+                    processing_time REAL NOT NULL
+                )
+            """)
+
+            # Create health_checks table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS health_checks (
+                    timestamp INTEGER PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    version TEXT NOT NULL
+                )
+            """)
+
+            # Create system_status table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS system_status (
+                    timestamp INTEGER PRIMARY KEY,
+                    services TEXT NOT NULL,
+                    metrics TEXT NOT NULL,
+                    uptime TEXT NOT NULL
+                )
+            """)
+
+            # Create websocket_messages table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS websocket_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    type TEXT NOT NULL,
+                    frame_id TEXT NOT NULL,
+                    timestamp INTEGER NOT NULL,
+                    image_data TEXT NOT NULL,
+                    detections TEXT NOT NULL,
+                    violations TEXT NOT NULL
+                )
+            """)
             
-            # Upsert default ROI
-            # conn.execute("""
-            #     INSERT INTO rois (id, name, coordinates, violation_type)
-            #     VALUES (
-            #     'protein_container',
-            #     'Protein Container',
-            #     '[430, 320, 300, 700]',
-            #     'no_scooper'
-            #     )
-            #     ON CONFLICT(id) DO UPDATE
-            #     SET coordinates = excluded.coordinates,
-            #         name        = excluded.name,
-            #         violation_type = excluded.violation_type,
-            #         updated_at  = CURRENT_TIMESTAMP
-            # """)
-            conn.commit()
+            # Create indexes
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_violations_timestamp ON violations (timestamp)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_violations_roi_id ON violations (roi_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_video_frames_ts ON video_frames(timestamp)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_frame ON detections(frame_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_ws_msgs_ts ON websocket_messages(timestamp)")
+
+
     
     @contextmanager
     def get_connection(self):
@@ -86,7 +148,7 @@ class Database:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 violation.frame_id,
-                violation.timestamp,
+                int(violation.timestamp.replace(tzinfo=timezone.utc).timestamp()), # Convert to UNIX epoch
                 violation.violation_type.value,
                 violation.roi_id,
                 violation.confidence,
@@ -106,11 +168,11 @@ class Database:
         
         if start_time:
             query += " AND timestamp >= ?"
-            params.append(start_time)
+            params.append(int(start_time.replace(tzinfo=timezone.utc).timestamp()))
         
         if end_time:
             query += " AND timestamp <= ?"
-            params.append(end_time)
+            params.append(int(end_time.replace(tzinfo=timezone.utc).timestamp()))
         
         query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
@@ -120,16 +182,16 @@ class Database:
             violations = []
             for row in rows:
                 violation = ViolationRecord(
-                    id=row['id'],
-                    frame_id=row['frame_id'],
-                    timestamp=datetime.fromisoformat(row['timestamp']),
-                    violation_type=ViolationType(row['violation_type']),
-                    roi_id=row['roi_id'],
-                    confidence=row['confidence'],
-                    frame_path=row['frame_path'],
-                    bounding_boxes=json.loads(row['bounding_boxes']) if row['bounding_boxes'] else [],
-                    metadata=json.loads(row['metadata']) if row['metadata'] else None,
-                    created_at=datetime.fromisoformat(row['created_at'])
+                    id=row["id"],
+                    frame_id=row["frame_id"],
+                    timestamp=datetime.fromtimestamp(row["timestamp"], tz=timezone.utc), # Convert from UNIX epoch
+                    violation_type=ViolationType(row["violation_type"]),
+                    roi_id=row["roi_id"],
+                    confidence=row["confidence"],
+                    frame_path=row["frame_path"],
+                    bounding_boxes=json.loads(row["bounding_boxes"]) if row["bounding_boxes"] else [],
+                    metadata=json.loads(row["metadata"]) if row["metadata"] else None,
+                    created_at=datetime.fromtimestamp(row["created_at"], tz=timezone.utc) if row["created_at"] else None
                 )
                 violations.append(violation)
             return violations
@@ -142,21 +204,21 @@ class Database:
         
         if start_time:
             query += " AND timestamp >= ?"
-            params.append(start_time)
+            params.append(int(start_time.replace(tzinfo=timezone.utc).timestamp()))
         
         if end_time:
             query += " AND timestamp <= ?"
-            params.append(end_time)
+            params.append(int(end_time.replace(tzinfo=timezone.utc).timestamp()))
         
         with self.get_connection() as conn:
             result = conn.execute(query, params).fetchone()
-            return result['count']
+            return result["count"]
     
     def get_violation_summary(self) -> Dict[str, Any]:
         """Get violation summary statistics"""
         with self.get_connection() as conn:
             # Total violations
-            total = conn.execute("SELECT COUNT(*) as count FROM violations").fetchone()['count']
+            total = conn.execute("SELECT COUNT(*) as count FROM violations").fetchone()["count"]
             
             # Violations by type
             type_counts = conn.execute("""
@@ -166,15 +228,16 @@ class Database:
             """).fetchall()
             
             # Last violation
-            last_violation = conn.execute("""
+            last_violation_timestamp = conn.execute("""
                 SELECT timestamp FROM violations 
                 ORDER BY timestamp DESC LIMIT 1
             """).fetchone()
+            last_violation = datetime.fromtimestamp(last_violation_timestamp["timestamp"], tz=timezone.utc) if last_violation_timestamp else None
             
             return {
-                'total_violations': total,
-                'violations_by_type': {row['violation_type']: row['count'] for row in type_counts},
-                'last_violation': datetime.fromisoformat(last_violation['timestamp']) if last_violation else None
+                "total_violations": total,
+                "violations_by_type": {row["violation_type"]: row["count"] for row in type_counts},
+                "last_violation": last_violation
             }
     
     def get_rois(self) -> List[ROI]:
@@ -184,11 +247,11 @@ class Database:
             rois = []
             for row in rows:
                 roi = ROI(
-                    id=row['id'],
-                    name=row['name'],
-                    coordinates=json.loads(row['coordinates']),
-                    active=bool(row['active']),
-                    violation_type=ViolationType(row['violation_type'])
+                    id=row["id"],
+                    name=row["name"],
+                    coordinates=json.loads(row["coordinates"]),
+                    active=bool(row["active"]),
+                    violation_type=ViolationType(row["violation_type"])
                 )
                 rois.append(roi)
             return rois
@@ -210,3 +273,96 @@ class Database:
             ))
             conn.commit()
             logger.info(f"ROI {roi.id} updated successfully")
+
+    def insert_video_frame(self, vf: VideoFrame) -> None:
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO video_frames
+                (frame_id, timestamp, frame_data, width, height, fps, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                vf.frame_id,
+                int(vf.timestamp.timestamp()),
+                vf.frame_data,
+                vf.metadata.width,
+                vf.metadata.height,
+                vf.metadata.fps,
+                vf.metadata.source
+            ))
+            conn.commit()
+
+    def insert_detection(self, det: Detection, frame_id: str) -> int:
+        with self.get_connection() as conn:
+            cur = conn.execute("""
+                INSERT INTO detections
+                (frame_id, class_name, confidence, bbox, track_id)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                frame_id,
+                det.class_name.value,
+                det.confidence,
+                json.dumps(det.bbox.dict()),
+                det.track_id
+            ))
+            conn.commit()
+            return cur.lastrowid
+
+    def insert_detection_result(self, dr: DetectionResult) -> None:
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO detection_results
+                (frame_id, timestamp, detections, violations, frame_data, processing_time)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                dr.frame_id,
+                int(dr.timestamp.timestamp()),
+                json.dumps([d.dict() for d in dr.detections]),
+                json.dumps([v.dict() for v in dr.violations]),
+                dr.frame_data,
+                dr.processing_time
+            ))
+            conn.commit()
+
+    def insert_health_check(self, hc: HealthCheck) -> None:
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO health_checks
+                (timestamp, status, version)
+                VALUES (?, ?, ?)
+            """, (
+                int(hc.timestamp.timestamp()),
+                hc.status,
+                hc.version
+            ))
+            conn.commit()
+
+    def insert_system_status(self, ss: SystemStatus) -> None:
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO system_status
+                (timestamp, services, metrics, uptime)
+                VALUES (?, ?, ?, ?)
+            """, (
+                int(datetime.now(timezone.utc).timestamp()),
+                json.dumps(ss.services),
+                json.dumps(ss.metrics),
+                ss.uptime
+            ))
+            conn.commit()
+
+    def insert_websocket_message(self, msg: WebSocketMessage) -> int:
+        with self.get_connection() as conn:
+            cur = conn.execute("""
+                INSERT INTO websocket_messages
+                (type, frame_id, timestamp, image_data, detections, violations)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                msg.type,
+                msg.frame_id,
+                int(msg.timestamp.timestamp()),
+                msg.image_data,
+                json.dumps([d.dict() for d in msg.detections]),
+                json.dumps([v.dict() for v in msg.violations])
+            ))
+            conn.commit()
+            return cur.lastrowid

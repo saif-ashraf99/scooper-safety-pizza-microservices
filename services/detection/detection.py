@@ -7,34 +7,29 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-from services.shared import (
+from shared import (
     RabbitMQConsumer, RabbitMQPublisher, Database, 
     DetectionResult
 )
 
-from services.detection.video_processor import VideoProcessor
-from services.detection.yolo_detector import YOLODetector
-from services.detection.violation_detector import ViolationDetector
-from services.detection.container_finder import ContainerFinder
+from detection.video_processor import VideoProcessor
+from detection.yolo_detector import YOLODetector
+from detection.violation_detector import ViolationDetector
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-
 class DetectionService:
-    def __init__(self, rabbitmq_host: str , rabbitmq_port: int,
-                 rabbitmq_user: str, rabbitmq_password: str,
-                 model_path: Optional[str], db_path: str):
+    def __init__(self, camera_id: str, model_path: Optional[str] = None, db_path: str = 'violations.db',
+                 rabbitmq_host: str = 'localhost', rabbitmq_port: int = 5672,
+                 rabbitmq_user: str = 'admin', rabbitmq_password: str = 'admin123', enable_rabbit: bool = False):
         
-        # Initialize RabbitMQ (optional for video processing)
+        self.camera_id = camera_id
         self.consumer = None
         self.publisher = None
-        
-        if rabbitmq_host != 'none':  # Allow skipping RabbitMQ for video processing
+
+        if enable_rabbit:
             self.consumer = RabbitMQConsumer(
                 host=rabbitmq_host,
                 port=rabbitmq_port,
@@ -49,23 +44,18 @@ class DetectionService:
                 password=rabbitmq_password
             )
         
-        # Initialize database
         self.db = Database(db_path)
-        
-        # Initialize detector
         self.detector = YOLODetector(model_path)
         
-        # Initialize violation detector with ROIs from database
-        rois = self.db.get_rois()
-        self.violation_detector = ViolationDetector([roi.dict() for roi in rois])
+        # Initialize violation detector without ROIs from database; ROIs are now managed by ContainerFinder
+        self.violation_detector = ViolationDetector([]) # Initialize with empty list, ROIs will be set per frame
         
-        # Initialize video processor
+        # Internally instantiate VideoProcessor (no standalone ContainerFinder)
         self.video_processor = VideoProcessor(
-            self.detector, self.violation_detector, self.db
-        )
-        self.container_finder = ContainerFinder(
-            match_threshold=0.8,
-            use_edges=False         # try True if lighting varies wildly
+            camera_id=self.camera_id,
+            detector=self.detector,
+            violation_detector=self.violation_detector,
+            db=self.db
         )
         
         # Metrics
@@ -73,7 +63,7 @@ class DetectionService:
         self.violations_detected = 0
         self.start_time = time.time()
         
-        logger.info("Detection service initialized")
+        logger.info(f"Detection service initialized for camera_id: {self.camera_id}")
     
     def process_video(self, video_path: str, output_path: Optional[str] = None,
                      **kwargs) -> Dict[str, Any]:
@@ -89,7 +79,7 @@ class DetectionService:
     
     def encode_frame(self, frame: np.ndarray) -> str:
         """Encode frame to base64 string"""
-        _, buffer = cv2.imencode('.jpg', frame)
+        _, buffer = cv2.imencode(".jpg", frame)
         return base64.b64encode(buffer).decode('utf-8')
     
     def process_frame(self, message: Dict[str, Any]):
@@ -129,6 +119,7 @@ class DetectionService:
                 self.publisher.publish_detection_result(detection_result.model_dump())
             
             self.frames_processed += 1
+            self.violations_detected += len(result['violations'])
             
             if self.frames_processed % 100 == 0:
                 elapsed = time.time() - self.start_time
@@ -137,12 +128,12 @@ class DetectionService:
                           f"FPS: {fps:.2f}, Violations: {self.violations_detected}")
             
         except Exception as e:
-            logger.error(f"Error processing frame {frame_id}: {e}")
+            logger.error(f"Error processing frame {message.get('frame_id', 'UNKNOWN')}: {e}")
     
     def start(self):
         """Start the detection service (RabbitMQ mode)"""
         if not self.consumer:
-            logger.error("RabbitMQ consumer not initialized. Use process_video() for video files.")
+            logger.error("RabbitMQ consumer not initialized. Set enable_rabbit=True for RabbitMQ mode.")
             return
             
         logger.info("Starting detection service...")
@@ -158,3 +149,7 @@ class DetectionService:
                 self.consumer.disconnect()
             if self.publisher:
                 self.publisher.disconnect()
+
+
+
+
