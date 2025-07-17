@@ -171,6 +171,7 @@ class Database:
         offset: int = 0,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
+        camera_id: Optional[str] = None,
     ) -> List[ViolationRecord]:
         """Get violation records with pagination and filtering"""
         query = "SELECT * FROM violations WHERE 1=1"
@@ -183,6 +184,10 @@ class Database:
         if end_time:
             query += " AND timestamp <= ?"
             params.append(int(end_time.replace(tzinfo=timezone.utc).timestamp()))
+            
+        if camera_id:
+            query += " AND camera_id = ?"
+            params.append(camera_id)
             
         query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
@@ -204,6 +209,7 @@ class Database:
                 violation = ViolationRecord(
                     id=row["id"],
                     frame_id=row["frame_id"],
+                    camera_id=row["camera_id"],
                     timestamp=datetime.fromtimestamp(row["timestamp"], tz=timezone.utc),
                     violation_type=ViolationType(row["violation_type"]),
                     roi_id=row["roi_id"],
@@ -217,40 +223,40 @@ class Database:
 
             return violations
 
-    def get_violation_count_by_camera_frame(
+    def get_violation_count(
         self,
-        camera_id: str,
-        frame_id: str
+        camera_id: Optional[str] = None,
+        frame_id:   Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time:   Optional[datetime] = None
     ) -> int:
-        """Return how many violations for a given camera and frame."""
-        query = """
-            SELECT COUNT(*) as count
-            FROM violations
-            WHERE camera_id = ? AND frame_id = ?
         """
-        with self.get_connection() as conn:
-            row = conn.execute(query, (camera_id, frame_id)).fetchone()
-            return row["count"] if row else 0
+        Return how many violations match the given filters.
+        Any of camera_id, frame_id, start_time, end_time may be omitted.
+        """
+        query = "SELECT COUNT(*) AS count FROM violations WHERE 1=1"
+        params: List[Any] = []
 
+        if camera_id is not None:
+            query += " AND camera_id = ?"
+            params.append(camera_id)
 
-    def get_violation_count(self, start_time: Optional[datetime] = None, 
-                           end_time: Optional[datetime] = None) -> int:
-        """Get total violation count"""
-        query = "SELECT COUNT(*) as count FROM violations WHERE 1=1"
-        params = []
-        
-        if start_time:
+        if frame_id is not None:
+            query += " AND frame_id = ?"
+            params.append(frame_id)
+
+        if start_time is not None:
             query += " AND timestamp >= ?"
             params.append(int(start_time.replace(tzinfo=timezone.utc).timestamp()))
-        
-        if end_time:
+
+        if end_time is not None:
             query += " AND timestamp <= ?"
             params.append(int(end_time.replace(tzinfo=timezone.utc).timestamp()))
-        
+
         with self.get_connection() as conn:
-            result = conn.execute(query, params).fetchone()
-            return result["count"]
-    
+            row = conn.execute(query, params).fetchone()
+            return row["count"] if row else 0
+
     def get_violation_summary(self) -> Dict[str, Any]:
         """Get violation summary statistics"""
         with self.get_connection() as conn:
