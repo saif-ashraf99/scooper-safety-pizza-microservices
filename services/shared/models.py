@@ -86,7 +86,6 @@ class ROI(BaseModel):
 class ViolationRecord(BaseModel):
     id: Optional[int] = None
     frame_id: str
-    camera_id: str
     timestamp: datetime
     violation_type: ViolationType
     roi_id: str

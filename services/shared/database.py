@@ -23,7 +23,6 @@ class Database:
                 CREATE TABLE IF NOT EXISTS violations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     frame_id VARCHAR(36) NOT NULL,
-                    camera_id VARCHAR(50) NOT NULL,
                     timestamp INTEGER NOT NULL, -- Storing as UNIX epoch integer
                     violation_type VARCHAR(50) NOT NULL,
                     roi_id VARCHAR(50) NOT NULL,
@@ -146,12 +145,11 @@ class Database:
             cursor = conn.execute(
                 """
                 INSERT INTO violations 
-                    (camera_id, frame_id, timestamp, violation_type, roi_id, confidence,
+                    (frame_id, timestamp, violation_type, roi_id, confidence,
                     frame_path, bounding_boxes, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    violation.camera_id,
                     violation.frame_id,
                     int(violation.timestamp.replace(tzinfo=timezone.utc).timestamp()),
                     violation.violation_type.value,
@@ -171,7 +169,6 @@ class Database:
         offset: int = 0,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
-        camera_id: Optional[str] = None,
     ) -> List[ViolationRecord]:
         """Get violation records with pagination and filtering"""
         query = "SELECT * FROM violations WHERE 1=1"
@@ -184,10 +181,6 @@ class Database:
         if end_time:
             query += " AND timestamp <= ?"
             params.append(int(end_time.replace(tzinfo=timezone.utc).timestamp()))
-            
-        if camera_id:
-            query += " AND camera_id = ?"
-            params.append(camera_id)
             
         query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
@@ -209,7 +202,6 @@ class Database:
                 violation = ViolationRecord(
                     id=row["id"],
                     frame_id=row["frame_id"],
-                    camera_id=row["camera_id"],
                     timestamp=datetime.fromtimestamp(row["timestamp"], tz=timezone.utc),
                     violation_type=ViolationType(row["violation_type"]),
                     roi_id=row["roi_id"],
@@ -225,21 +217,16 @@ class Database:
 
     def get_violation_count(
         self,
-        camera_id: Optional[str] = None,
         frame_id:   Optional[str] = None,
         start_time: Optional[datetime] = None,
         end_time:   Optional[datetime] = None
     ) -> int:
         """
         Return how many violations match the given filters.
-        Any of camera_id, frame_id, start_time, end_time may be omitted.
+        Any of frame_id, start_time, end_time may be omitted.
         """
         query = "SELECT COUNT(*) AS count FROM violations WHERE 1=1"
         params: List[Any] = []
-
-        if camera_id is not None:
-            query += " AND camera_id = ?"
-            params.append(camera_id)
 
         if frame_id is not None:
             query += " AND frame_id = ?"
