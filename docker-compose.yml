@@ -47,6 +47,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./violation_frames:/app/violation_frames
+      - ./videos:/app/videos
       - ./models:/app/models
       - ./services/detection/rois/container_rois.json:/app/container_rois.json:ro
     depends_on:
@@ -59,11 +60,12 @@ services:
       [
         "python", "main.py",
         "--mode", "service",
-        "--camera-id", "1",
+        "--camera-id", "Sah w b3dha ghalt (2).mp4",
         "--model-path", "models/fine-tuned-yolo12m-v2.pt",
         "--db-path", "data/violations.db",
-        "--skip-frames", "5",
-        "--output-path", "videos/output/output_video.mp4"
+        "--skip-frames", "0",
+        "--output-path", "videos/output/output_video_Sah w b3dha ghalt2.mp4",
+        "--no-display"
       ]
 
   frame_reader:
@@ -81,7 +83,7 @@ services:
     networks:
       - pizza_network
     restart: unless-stopped
-    command: ["python", "main.py", "--source", "/app/videos/Sah_w _b3dha_ghalt.mp4", "--fps", "5"]
+    command: ["python", "main.py", "--source", "/app/videos/Sah w b3dha ghalt (2).mp4", "--fps", "0"]
 
   streamlit_frontend:
     build:

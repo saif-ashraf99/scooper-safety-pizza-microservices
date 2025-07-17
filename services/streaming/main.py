@@ -107,7 +107,6 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# API Endpoints
 
 @app.get("/health", response_model=HealthCheck)
 async def health_check():

@@ -23,6 +23,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS violations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     frame_id VARCHAR(36) NOT NULL,
+                    camera_id VARCHAR(50) NOT NULL,
                     timestamp INTEGER NOT NULL, -- Storing as UNIX epoch integer
                     violation_type VARCHAR(50) NOT NULL,
                     roi_id VARCHAR(50) NOT NULL,
@@ -68,6 +69,7 @@ class Database:
                     confidence REAL NOT NULL,
                     bbox TEXT NOT NULL,
                     track_id INTEGER,
+                    hand_id INTEGER,
                     FOREIGN KEY(frame_id) REFERENCES video_frames(frame_id)
                 )
             """)
@@ -140,62 +142,97 @@ class Database:
             conn.close()
     
     def insert_violation(self, violation: ViolationRecord) -> int:
-        """Insert a new violation record"""
         with self.get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 INSERT INTO violations 
-                (frame_id, timestamp, violation_type, roi_id, confidence, frame_path, bounding_boxes, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                violation.frame_id,
-                int(violation.timestamp.replace(tzinfo=timezone.utc).timestamp()), # Convert to UNIX epoch
-                violation.violation_type.value,
-                violation.roi_id,
-                violation.confidence,
-                violation.frame_path,
-                json.dumps([det.dict() for det in violation.bounding_boxes]),
-                json.dumps(violation.metadata) if violation.metadata else None
-            ))
+                    (camera_id, frame_id, timestamp, violation_type, roi_id, confidence,
+                    frame_path, bounding_boxes, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    violation.camera_id,
+                    violation.frame_id,
+                    int(violation.timestamp.replace(tzinfo=timezone.utc).timestamp()),
+                    violation.violation_type.value,
+                    violation.roi_id,
+                    violation.confidence,
+                    violation.frame_path,
+                    json.dumps([det.dict() for det in violation.bounding_boxes]),
+                    json.dumps(violation.metadata) if violation.metadata else None
+                )
+            )
             conn.commit()
             return cursor.lastrowid
-    
-    def get_violations(self, limit: int = 50, offset: int = 0, 
-                      start_time: Optional[datetime] = None, 
-                      end_time: Optional[datetime] = None) -> List[ViolationRecord]:
+
+    def get_violations(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+    ) -> List[ViolationRecord]:
         """Get violation records with pagination and filtering"""
         query = "SELECT * FROM violations WHERE 1=1"
-        params = []
-        
+        params: List[Any] = []
+
         if start_time:
             query += " AND timestamp >= ?"
             params.append(int(start_time.replace(tzinfo=timezone.utc).timestamp()))
-        
+
         if end_time:
             query += " AND timestamp <= ?"
             params.append(int(end_time.replace(tzinfo=timezone.utc).timestamp()))
-        
+            
         query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
-        
+
         with self.get_connection() as conn:
             rows = conn.execute(query, params).fetchall()
-            violations = []
+            violations: List[ViolationRecord] = []
             for row in rows:
+                # SQLite returns DATETIME columns as strings; parse created_at safely
+                raw_ca = row["created_at"]
+                if raw_ca is None:
+                    created_at = None
+                elif isinstance(raw_ca, (int, float)):
+                    created_at = datetime.fromtimestamp(raw_ca, tz=timezone.utc)
+                else:
+                    # assume ISO-format "YYYY-MM-DD HH:MM:SS"
+                    created_at = datetime.fromisoformat(raw_ca).replace(tzinfo=timezone.utc)
+
                 violation = ViolationRecord(
                     id=row["id"],
                     frame_id=row["frame_id"],
-                    timestamp=datetime.fromtimestamp(row["timestamp"], tz=timezone.utc), # Convert from UNIX epoch
+                    timestamp=datetime.fromtimestamp(row["timestamp"], tz=timezone.utc),
                     violation_type=ViolationType(row["violation_type"]),
                     roi_id=row["roi_id"],
                     confidence=row["confidence"],
                     frame_path=row["frame_path"],
                     bounding_boxes=json.loads(row["bounding_boxes"]) if row["bounding_boxes"] else [],
                     metadata=json.loads(row["metadata"]) if row["metadata"] else None,
-                    created_at=datetime.fromtimestamp(row["created_at"], tz=timezone.utc) if row["created_at"] else None
+                    created_at=created_at
                 )
                 violations.append(violation)
+
             return violations
-    
+
+    def get_violation_count_by_camera_frame(
+        self,
+        camera_id: str,
+        frame_id: str
+    ) -> int:
+        """Return how many violations for a given camera and frame."""
+        query = """
+            SELECT COUNT(*) as count
+            FROM violations
+            WHERE camera_id = ? AND frame_id = ?
+        """
+        with self.get_connection() as conn:
+            row = conn.execute(query, (camera_id, frame_id)).fetchone()
+            return row["count"] if row else 0
+
+
     def get_violation_count(self, start_time: Optional[datetime] = None, 
                            end_time: Optional[datetime] = None) -> int:
         """Get total violation count"""
@@ -220,26 +257,36 @@ class Database:
             # Total violations
             total = conn.execute("SELECT COUNT(*) as count FROM violations").fetchone()["count"]
             
-            # Violations by type
+            # Violations by type (ensure count is int)
             type_counts = conn.execute("""
                 SELECT violation_type, COUNT(*) as count 
                 FROM violations 
                 GROUP BY violation_type
             """).fetchall()
             
-            # Last violation
+            # Last violation timestamp handling
             last_violation_timestamp = conn.execute("""
                 SELECT timestamp FROM violations 
                 ORDER BY timestamp DESC LIMIT 1
             """).fetchone()
-            last_violation = datetime.fromtimestamp(last_violation_timestamp["timestamp"], tz=timezone.utc) if last_violation_timestamp else None
             
+            last_violation = None
+            if last_violation_timestamp and "timestamp" in last_violation_timestamp:
+                ts = last_violation_timestamp["timestamp"]
+                if isinstance(ts, str):
+                    try:
+                        last_violation = datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
+                    except ValueError:
+                        # fallback for alternative timestamp formats
+                        last_violation = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=timezone.utc)
+                elif isinstance(ts, (int, float)):
+                    last_violation = datetime.fromtimestamp(ts, tz=timezone.utc)
+
             return {
-                "total_violations": total,
-                "violations_by_type": {row["violation_type"]: row["count"] for row in type_counts},
+                "total_violations": int(total),
+                "violations_by_type": {row["violation_type"]: int(row["count"]) for row in type_counts},
                 "last_violation": last_violation
             }
-    
     def get_rois(self) -> List[ROI]:
         """Get all ROI configurations"""
         with self.get_connection() as conn:
@@ -302,7 +349,8 @@ class Database:
                 det.class_name.value,
                 det.confidence,
                 json.dumps(det.bbox.dict()),
-                det.track_id
+                det.track_id,
+                det.hand_id,
             ))
             conn.commit()
             return cur.lastrowid

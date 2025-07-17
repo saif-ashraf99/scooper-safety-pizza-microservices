@@ -26,7 +26,8 @@ class Detection(BaseModel):
     class_name: DetectionClass
     confidence: float = Field(..., ge=0.0, le=1.0)
     bbox: BoundingBox
-    track_id: Optional[int] = None
+    track_id: Optional[int] = None         # DeepSORT id (all classes)
+    hand_id: Optional[int] = None          # Filled only for HAND tracks
 
 
 class Violation(BaseModel):
@@ -36,7 +37,8 @@ class Violation(BaseModel):
     bbox: BoundingBox
     description: Optional[str] = None
     track_id: Optional[int] = None 
-
+    hand_id: Optional[int] = None
+    
 
 class FrameMetadata(BaseModel):
     width: int
@@ -79,17 +81,12 @@ class ROI(BaseModel):
     coordinates: List[float] = Field(..., min_items=4, max_items=4)
     active: bool = True
     violation_type: ViolationType
-
-    @field_validator("coordinates")
-    def validate_coordinates(cls, v):
-        if not (v[0] < v[2] and v[1] < v[3]):
-            raise ValueError("ROI coordinates must be [x1, y1, x2, y2] where x1 < x2 and y1 < y2")
-        return v
-
+    
 
 class ViolationRecord(BaseModel):
     id: Optional[int] = None
     frame_id: str
+    camera_id: str
     timestamp: datetime
     violation_type: ViolationType
     roi_id: str

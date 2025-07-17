@@ -67,7 +67,9 @@ class VideoProcessor:
                         y1=det['bbox'][1],
                         x2=det['bbox'][2],
                         y2=det['bbox'][3]
-                    )
+                    ),
+                    track_id=det['track_id'] if 'track_id' in det else None,
+                    hand_id=det['hand_id'] if 'hand_id' in det else None
                 )
                 detections.append(d)
 
@@ -264,8 +266,9 @@ class VideoProcessor:
             
             cv2.rectangle(frame_copy, (x1, y1), (x2, y2), color, 2)
             label = f"{detection.class_name.value}: {detection.confidence:.2f}"
-            # append track_id if present
-            if hasattr(detection, 'track_id'):
+            if detection.class_name == DetectionClass.HAND and detection.hand_id is not None:
+                label += f" (ID {detection.hand_id})"
+            elif detection.track_id is not None:
                 label += f" (ID {detection.track_id})"
             cv2.putText(frame_copy, label,
                        (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
@@ -301,9 +304,12 @@ class VideoProcessor:
         """Save violations to database"""
         for violation in violations:
             # Grab track_id if present
-            record_meta = {'description': violation.description}
-            if hasattr(violation, 'track_id'):
-                record_meta['track_id'] = violation.track_id
+            record_meta = {"description": violation.description}
+            if violation.hand_id is not None:
+                record_meta["hand_id"] = violation.hand_id    # already present
+            elif violation.track_id is not None:
+                record_meta["track_id"] = violation.track_id
+            
 
             # Save violation frame
             frame_path = self._save_violation_frame(frame, frame_id)
@@ -321,6 +327,7 @@ class VideoProcessor:
             
             self.db.insert_violation(violation_record)
             self.violations_detected += 1
+            
 
     def _save_violation_frame(self, frame: np.ndarray, frame_id: str) -> str:
         os.makedirs('violation_frames', exist_ok=True)
