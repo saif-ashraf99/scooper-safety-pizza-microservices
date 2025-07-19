@@ -60,7 +60,7 @@ services:
       [
         "python", "main.py",
         "--mode", "service",
-        "--camera-id", "Sah w b3dha ghalt",
+        "--camera-id", "Sah w b3dha ghalt (2)",
         "--model-path", "models/fine-tuned-yolo12m-v2.pt",
         "--db-path", "data/violations.db",
         "--skip-frames", "0",
@@ -82,7 +82,7 @@ services:
     networks:
       - pizza_network
     restart: unless-stopped
-    command: ["python", "main.py", "--source", "/app/videos/Sah w b3dha ghalt.mp4", "--fps", "0"]
+    command: ["python", "main.py", "--source", "/app/videos/Sah w b3dha ghalt (2).mp4", "--fps", "0"]
 
   streamlit_frontend:
     build:
