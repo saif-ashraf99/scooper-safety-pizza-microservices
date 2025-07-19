@@ -97,7 +97,6 @@ pizza_violation_detection/
 │   └── frame_reader/       # Video frame reader service
 ├── frontend/               # Streamlit web dashboard
 ├── shared/                 # Shared modules and utilities
-├── tests/                  # Unit and integration tests
 ├── data/                   # Database and persistent data
 ├── videos/                 # Video files for processing
 ├── models/                 # YOLO model files
@@ -170,21 +169,6 @@ curl -X POST http://localhost:8000/api/rois \
     "active": true,
     "violation_type": "no_scooper"
   }'
-```
-
-## 🧪 Testing
-
-Run the test suite:
-
-```bash
-# Unit tests
-python -m pytest tests/test_shared.py -v
-
-# Integration tests
-python -m pytest tests/test_integration.py -v
-
-# All tests
-python -m pytest tests/ -v
 ```
 
 ## 🔍 Monitoring and Logging
