@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import requests
 import json
@@ -20,8 +21,8 @@ st.set_page_config(
 )
 
 # Configuration
-DEFAULT_API_BASE_URL = "http://streaming_service:8000"
-DEFAULT_WS_URL = "ws://streaming_service:8000/ws/video"
+DEFAULT_API_BASE_URL = os.getenv('DEFAULT_API_BASE_URL', "http://streaming_service:8000")
+DEFAULT_WS_URL = os.getenv('DEFAULT_WS_URL', "ws://streaming_service:8000/ws/video")
 
 # Initialize session state
 if 'api_base_url' not in st.session_state:

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class RabbitMQClient:
     def __init__(self, host: Optional[str] = None, port: Optional[int] = None, 
                  username: Optional[str] = None, password: Optional[str] = None):
-        self.host = host if host is not None else os.getenv('RABBITMQ_HOST', 'rabbitmq')
+        self.host = host if host is not None else os.getenv('RABBITMQ_HOST', 'localhost')
         self.port = port if port is not None else int(os.getenv('RABBITMQ_PORT', 5672))
         self.username = username if username is not None else os.getenv('RABBITMQ_USER', 'admin')
         self.password = password if password is not None else os.getenv('RABBITMQ_PASSWORD', 'admin123')

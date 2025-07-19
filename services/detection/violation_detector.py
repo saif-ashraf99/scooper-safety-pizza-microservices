@@ -1,3 +1,4 @@
+from deep_sort_realtime.deepsort_tracker import DeepSort
 import numpy as np
 import logging
 from typing import List, Dict, Any, Tuple
@@ -7,96 +8,166 @@ from services.shared import Detection, Violation, ViolationType, DetectionClass
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-
 class ViolationDetector:
-    """Violation detection logic"""
-    
-    def __init__(self, rois: List[Dict[str, Any]]):
+    """
+    Emit ONE `NO_SCOOPER` violation per continuous episode.
+    A new episode can start only after the ROI has been “safe”
+    for `frames_clear` consecutive frames.
+    """
+
+    def __init__(self, rois: List[Dict[str, Any]], *, frames_clear: int = 12):
+        """
+        Args
+        ----
+        rois : list of ROI dicts (each needs 'id', 'name', 'coordinates')
+        frames_clear : how many consecutive safe frames must pass
+                       before the ROI can fire again (default 12 ≈ 0.4 s at 30 FPS)
+        """
         self.rois = rois
-        self.hand_history = {}  # Track hand movements
+        self.tracker = DeepSort(max_age=30, n_init=0)
         self.scooper_threshold = 0.7
-        
-    def is_point_in_roi(self, point: Tuple[float, float], roi: Dict[str, Any]) -> bool:
-        """Check if point is inside ROI"""
-        x, y = point
-        x1, y1, x2, y2 = roi['coordinates']
-        return x1 <= x <= x2 and y1 <= y <= y2
-    
-    def get_bbox_center(self, bbox: List[float]) -> Tuple[float, float]:
-        """Get center point of bounding box"""
-        x1, y1, x2, y2 = bbox
-        return ((x1 + x2) / 2, (y1 + y2) / 2)
-    
+        self.frames_clear = frames_clear
 
-    def detect_violations(
-        self,
-        detections: List[Detection],
-        frame_id: str
-    ) -> List[Violation]:
-        """No‐scooper when HAND (or PERSON) enters the ROI rectangle at all."""
-        violations: List[Violation] = []
+        # per-ROI episode state
+        self.roi_state: Dict[str, Dict[str, int | bool]] = {
+            roi["id"]: {"violating": False, "cooldown": 0} for roi in rois
+        }
 
-        # 1) scooper detections
-        scoopers = [d for d in detections if d.class_name == DetectionClass.SCOOPER]
+    # ---------------------- helpers ----------------------
+    @staticmethod
+    def center(b: List[float]) -> Tuple[float, float]:
+        x1, y1, x2, y2 = b
+        return (x1 + x2) / 2, (y1 + y2) / 2
 
-        # 2) hand detections, fallback to person if none
+    @staticmethod
+    def iou_inside(b: "BBox", roi_xyxy: Tuple[int, int, int, int]) -> bool:
+        """True iff the two boxes intersect (PERSON fallback)."""
+        x1, y1, x2, y2 = roi_xyxy
+        return not (b.x2 < x1 or b.x1 > x2 or b.y2 < y1 or b.y1 > y2)
+
+    def _get_trackables(self, detections: List[Detection]) -> List[Detection]:
+        return [
+            d for d in detections
+            if d.class_name in (DetectionClass.HAND, DetectionClass.PERSON)
+        ]
+
+    def _assign_track_ids(self, trackables: List[Detection], tracks: Any) -> None:
+        det_centroids = [
+            self.center([d.bbox.x1, d.bbox.y1, d.bbox.x2, d.bbox.y2])
+            for d in trackables
+        ]
+        for trk in tracks:
+            tid = trk.track_id
+            l, t, r, b = trk.to_ltrb()
+            cx, cy = (l + r) / 2, (t + b) / 2
+            if det_centroids:
+                idx = int(np.argmin([
+                    np.hypot(cx - x, cy - y) for x, y in det_centroids
+                ]))
+                trackables[idx].track_id = tid
+
+    def _get_hands_and_mode(
+        self, detections: List[Detection]
+    ) -> Tuple[List[Detection], bool]:
         hands = [d for d in detections if d.class_name == DetectionClass.HAND]
         using_person = False
         if not hands:
             hands = [d for d in detections if d.class_name == DetectionClass.PERSON]
             using_person = True
-            logger.debug(f"[{frame_id}] no HANDs → falling back to {len(hands)} PERSON(s)")
+        return hands, using_person
 
-        # 3) check each “hand” vs each ROI
-        for hand in hands:
-            # get the raw bbox coords
-            bx1, by1, bx2, by2 = hand.bbox.x1, hand.bbox.y1, hand.bbox.x2, hand.bbox.y2
+    def _evaluate_roi(
+        self,
+        roi: Dict[str, Any],
+        hands: List[Detection],
+        scoopers: List[Detection],
+        using_person: bool,
+        frame_id: str
+    ) -> List[Violation]:
+        rid = roi["id"]
+        if not roi.get("active", True):
+            return []
 
-            for roi in self.rois:
-                if not roi.get("active", True):
-                    continue
+        state = self.roi_state.setdefault(rid, {"violating": False, "cooldown": 0})
+        x1, y1, x2, y2 = roi["coordinates"]
+        w = x2 - x1
+        max_dist = w * 0.20
+        violating_now = False
+        violator_det = None
 
-                rx1, ry1, rx2, ry2 = roi["coordinates"]
+        for h in hands:
+            if not using_person:
+                cx, cy = (h.bbox.x1 + h.bbox.x2) / 2, (h.bbox.y1 + h.bbox.y2) / 2
+                in_roi = x1 <= cx <= x2 and y1 <= cy <= y2
+            else:
+                in_roi = self.iou_inside(h.bbox, (x1, y1, x2, y2))
 
-                # if we have a true hand, just test its center
-                if not using_person:
-                    cx, cy = (bx1+bx2)/2, (by1+by2)/2
-                    inside = (rx1 <= cx <= rx2) and (ry1 <= cy <= ry2)
-                    logger.debug(f"[{frame_id}] hand‐center at {(cx,cy)} inside ROI? {inside}")
-                else:
-                    # PERSON fallback: test ANY intersection of boxes
-                    inter = not (bx2 < rx1 or bx1 > rx2 or by2 < ry1 or by1 > ry2)
-                    inside = inter
-                    logger.debug(f"[{frame_id}] person‐bbox {(bx1,by1,bx2,by2)} "
-                                f"intersects ROI {(rx1,ry1,rx2,ry2)}? {inside}")
+            if not in_roi:
+                continue
 
-                if not inside:
-                    continue
+            cx, cy = self.center([h.bbox.x1, h.bbox.y1, h.bbox.x2, h.bbox.y2])
+            scooper_near = any(
+                np.hypot(cx - sx, cy - sy) < max_dist and s.confidence > self.scooper_threshold
+                for s in scoopers
+                for sx, sy in [self.center([s.bbox.x1, s.bbox.y1, s.bbox.x2, s.bbox.y2])]
+            )
 
-                # 4) compute a dynamic distance threshold
-                max_dist = (rx2 - rx1) * 0.2
+            if not scooper_near:
+                violating_now = True
+                violator_det = h
+                break
 
-                # 5) look for a nearby scooper
-                scooper_present = False
-                for s in scoopers:
-                    sx, sy = (s.bbox.x1 + s.bbox.x2)/2, (s.bbox.y1 + s.bbox.y2)/2
-                    dist = np.hypot(cx - sx, cy - sy) if not using_person else \
-                        np.hypot((by2+by1)/2 - sy, sx - (bx1+bx2)/2)
-                    logger.debug(f"[{frame_id}] scooper @ {(sx,sy)}, dist={dist:.1f}")
-                    if dist < max_dist and s.confidence > self.scooper_threshold:
-                        scooper_present = True
-                        break
-
-                if not scooper_present:
-                    desc = f"Hand/person in {roi['name']} without scooper"
-                    v = Violation(
+        results: List[Violation] = []
+        # state machine
+        if violating_now:
+            if not state["violating"] and state["cooldown"] == 0:
+                desc = f"Hand/person in {roi['name']} without scooper"
+                results.append(
+                    Violation(
                         type=ViolationType.NO_SCOOPER,
-                        roi_id=roi["id"],
-                        confidence=hand.confidence,
-                        bbox=hand.bbox,
-                        description=desc
+                        roi_id=rid,
+                        confidence=violator_det.confidence,
+                        bbox=violator_det.bbox,
+                        description=desc,
+                        track_id=getattr(violator_det, "track_id", None),
                     )
-                    violations.append(v)
-                    logger.warning(f"[{frame_id}] VIOLATION: {desc}")
+                )
+                logger.warning(f"[{frame_id}] ROI {rid} VIOLATION: {desc}")
+            state["violating"] = True
+            state["cooldown"] = 0
+        else:
+            if state["violating"]:
+                state["violating"] = False
+                state["cooldown"] = self.frames_clear
+            elif state["cooldown"] > 0:
+                state["cooldown"] -= 1
+
+        return results
+
+    # ---------------------- main -------------------------
+    def detect_violations(
+        self,
+        detections: List[Detection],
+        frame: np.ndarray,
+        frame_id: str,
+    ) -> List[Violation]:
+        # track HAND / PERSON
+        trackables = self._get_trackables(detections)
+        inputs = [
+            ([d.bbox.x1, d.bbox.y1, d.bbox.x2, d.bbox.y2], d.confidence, d.class_name)
+            for d in trackables
+        ]
+        tracks = self.tracker.update_tracks(inputs, frame=frame)
+        self._assign_track_ids(trackables, tracks)
+
+        # filter scoopers and hands
+        scoopers = [d for d in detections if d.class_name == DetectionClass.SCOOPER]
+        hands, using_person = self._get_hands_and_mode(detections)
+
+        violations: List[Violation] = []
+        for roi in self.rois:
+            violations.extend(
+                self._evaluate_roi(roi, hands, scoopers, using_person, frame_id)
+            )
 
         return violations

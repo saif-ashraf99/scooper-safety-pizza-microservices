@@ -4,10 +4,10 @@ from dataclasses import dataclass
 
 @dataclass
 class RabbitMQConfig:
-    host: str = os.getenv('RABBITMQ_HOST', 'rabbitmq')
+    host: str = os.getenv('RABBITMQ_HOST', 'localhost')
     port: int = int(os.getenv('RABBITMQ_PORT', 5672))
-    username: str = os.getenv('RABBITMQ_USER', 'admin')
-    password: str = os.getenv('RABBITMQ_PASSWORD', 'admin123')
+    username: str = os.getenv('RABBITMQ_USER', 'guest')
+    password: str = os.getenv('RABBITMQ_PASSWORD', 'guest')
     
     @property
     def connection_url(self) -> str:
@@ -27,8 +27,8 @@ class StreamingConfig:
 @dataclass
 class DetectionConfig:
     model_path: Optional[str] = os.getenv('MODEL_PATH')
-    confidence_threshold: float = float(os.getenv('CONFIDENCE_THRESHOLD', 0.7))
-    scooper_distance_threshold: float = float(os.getenv('SCOOPER_DISTANCE_THRESHOLD', 100.0))
+    confidence_threshold: float = float(os.getenv('CONFIDENCE_THRESHOLD', 0.5))
+    scooper_distance_threshold: float = float(os.getenv('SCOOPER_DISTANCE_THRESHOLD', 50.0))
     
 @dataclass
 class FrameReaderConfig:

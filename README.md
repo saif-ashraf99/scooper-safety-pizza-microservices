@@ -29,7 +29,7 @@ The system consists of five main microservices:
 1. **Clone and navigate to the project:**
 
    ```bash
-   cd pizza_violation_detection
+   cd scooper-safety-pizza-microservices
    ```
 2. **Start all services:**
 
@@ -42,18 +42,6 @@ The system consists of five main microservices:
    - FastAPI Backend: http://localhost:8000
    - API Documentation: http://localhost:8000/docs
    - RabbitMQ Management: http://localhost:15672 (admin/admin123)
-4. **Add a video source:**
-
-   ```bash
-   # Copy your video file to the videos directory
-   cp /path/to/your/video.mp4 ./videos/
-
-   # Update docker-compose.yml to specify the video source
-   command: ["python", "main.py", "--source", "/app/videos/your_video.mp4", "--fps", "10"]
-
-   # Restart the frame reader service
-   docker-compose restart frame_reader
-   ```
 
 ### Local Development Setup
 
@@ -80,7 +68,7 @@ The system consists of five main microservices:
 
    # Terminal 3 - Frame Reader Service
    cd services/frame_reader
-   python main.py --source /path/to/video.mp4 --fps 10
+   python main.py --source /select/video/from/the/videos/dir/video.mp4 --fps 10
 
    # Terminal 4 - Streamlit Frontend
    cd frontend
@@ -97,7 +85,6 @@ pizza_violation_detection/
 │   └── frame_reader/       # Video frame reader service
 ├── frontend/               # Streamlit web dashboard
 ├── shared/                 # Shared modules and utilities
-├── tests/                  # Unit and integration tests
 ├── data/                   # Database and persistent data
 ├── videos/                 # Video files for processing
 ├── models/                 # YOLO model files
@@ -170,21 +157,6 @@ curl -X POST http://localhost:8000/api/rois \
     "active": true,
     "violation_type": "no_scooper"
   }'
-```
-
-## 🧪 Testing
-
-Run the test suite:
-
-```bash
-# Unit tests
-python -m pytest tests/test_shared.py -v
-
-# Integration tests
-python -m pytest tests/test_integration.py -v
-
-# All tests
-python -m pytest tests/ -v
 ```
 
 ## 🔍 Monitoring and Logging

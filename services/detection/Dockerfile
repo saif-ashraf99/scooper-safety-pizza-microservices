@@ -19,8 +19,8 @@ COPY services /app/services
 # 4) Copy your entrypoint script
 COPY services/detection/main.py /app/main.py
 
-# Copy the template‐images folder into the same tree
-COPY services/detection/imgs /app/services/detection/imgs
+# Copy the rois
+COPY services/detection/rois /app/services/detection/rois
 
 # 5) Create data dirs
 RUN mkdir -p /app/data /app/violation_frames /app/models
