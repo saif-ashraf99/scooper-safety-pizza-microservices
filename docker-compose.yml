@@ -60,7 +60,7 @@ services:
       [
         "python", "main.py",
         "--mode", "service",
-        "--camera-id", "Sah w b3dha ghalt (2).mp4",
+        "--camera-id", "Sah w b3dha ghalt",
         "--model-path", "models/fine-tuned-yolo12m-v2.pt",
         "--db-path", "data/violations.db",
         "--skip-frames", "0",
