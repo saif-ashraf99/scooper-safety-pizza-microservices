@@ -505,6 +505,7 @@ class VideoProcessor:
             
             violation_record = ViolationRecord(
                 frame_id=frame_id,
+                camera_id=self.camera_id,
                 timestamp=timestamp,
                 violation_type=violation.type,
                 roi_id=violation.roi_id,

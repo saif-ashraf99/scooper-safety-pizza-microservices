@@ -23,7 +23,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS violations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     frame_id VARCHAR(36) NOT NULL,
-                    camera_id VARCHAR(50) NOT NULL,
+                    camera_id VARCHAR(50),
                     timestamp INTEGER NOT NULL, -- Storing as UNIX epoch integer
                     violation_type VARCHAR(50) NOT NULL,
                     roi_id VARCHAR(50) NOT NULL,
@@ -204,6 +204,7 @@ class Database:
                 violation = ViolationRecord(
                     id=row["id"],
                     frame_id=row["frame_id"],
+                    camera_id=row["camera_id"],
                     timestamp=datetime.fromtimestamp(row["timestamp"], tz=timezone.utc),
                     violation_type=ViolationType(row["violation_type"]),
                     roi_id=row["roi_id"],
